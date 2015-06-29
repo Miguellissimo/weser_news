@@ -6,6 +6,14 @@ require 'htmlentities'
 
 load 'twitter_config.rb'
 
+def cleanup
+  files_to_delete = ["articles.tex", "articles.aux", "template.aux", "template.toc", "template.log", "template.out"]
+
+  files_to_delete.each do |file|
+    File.delete(file) if File.exist?(file)
+  end
+end
+
 class Article
   attr_accessor :title
   attr_accessor :author
@@ -49,25 +57,30 @@ links.each do |link|
 
   # extract information from website
   begin
-    html_doc = Nokogiri::HTML(open(link))
-    a.title = HTMLEntities.new.decode html_doc.to_s.match(/title: "(.+)"/)[1]
-    a.summary = html_doc.xpath("string(//p[contains(@class, 'article_teaser')])")
+    html_doc  = Nokogiri::HTML(open(link))
+    a.title   = HTMLEntities.new.decode html_doc.to_s.match(/title: "(.+)"/)[1]
+    a.summary = HTMLEntities.new.decode html_doc.xpath("string(//p[contains(@class, 'article_teaser')])")
 
     # skip image links
     next if a.title.size == 0 || a.summary.size == 0
-    
-    a.author = html_doc.xpath("string(//span[contains(@class, 'authors-name')])")
-    article_pars = html_doc.xpath("//div[contains(@id, 'onlineText')]").children
 
+    a.author = HTMLEntities.new.decode html_doc.xpath("//span[contains(@class, 'authors-name')]")
+    article_pars = html_doc.xpath("//div[contains(@id, 'onlineText')]").children
+    
     article_pars.each do |par|
-      a.text += par.content
-      a.text += "\\\n"
+      par.content.gsub!("\n", "")
+      par.content.gsub!(/[\u0080-\u00ff]/, "")
+      par.content.gsub!(/[\u8000]/, "")
+      if  par.content.size > 0
+        a.text += HTMLEntities.new.decode par.content
+        a.text += "\n"
+      end
     end
 
     # fix some characters latex has problems with
-    a.text = a.text[0..-3]
     a.text = a.text.gsub("&", "und")
-    a.title = a.title.gsub("\"", "")
+    a.text = a.text.gsub("\n\n","\n")
+    a.summary = a.summary.gsub("\n", "")
 
     # skip if no article text
     next if a.text.size == 0 
@@ -87,23 +100,18 @@ end
 
 # export articles to tex file
 file = File.new("articles.tex", 'w')
-file.write("\\tableofcontents\n")
 articles.each do |article|
-  file.write("\\section{ #{article.title}}\n")
+  file.write("\\section{#{article.title}}\n")
   file.write("\n")
-  file.write("\\textbf{#{article.summary}}\n")
-  file.write(article.text)
+  file.write("\\textbf{#{article.summary}}")
+  file.write("#{article.text}")
 end
 file.close
 
 # build newspaper
 2.times do 
-  build_process = system( "pdflatex newspaper_template.tex" )
+  system( "pdflatex template.tex" )
 end
 
-# cleanup
-files_to_delete = ["articles.tex", "articles.aux", "newspaper_template.aux", "newspaper_template.toc", "newspaper_template.log", "newspaper_template.out"]
+cleanup
 
-files_to_delete.each do |file|
-  File.delete(file) if File.exist?(file)
-end
